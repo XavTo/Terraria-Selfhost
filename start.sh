@@ -1,62 +1,70 @@
 #!/bin/sh
 set -eu
 
-# Racine persistante Railway
+# Racine persistante (volume Railway monté sur /data)
 DATA_ROOT="${RAILWAY_VOLUME_MOUNT_PATH:-/data}"
 
-# Chemins attendus par l'image ryshe/terraria
+# Chemins de l'image ryshe/terraria
 WORLD_DIR="/root/.local/share/Terraria/Worlds"
-PLUGINS_DIR="/plugins"
 LOG_DIR="/tshock/logs"
+SERVERPLUGINS_DIR="/tshock/ServerPlugins"
+EXTERNAL_PLUGINS_DIR="/plugins"   # optionnel (dossier “drop”)
 
 # Sous-dossiers persistants dans le volume unique
 P_WORLD="${DATA_ROOT}/worlds"
-P_PLUGINS="${DATA_ROOT}/plugins"
 P_LOGS="${DATA_ROOT}/logs"
+P_SERVERPLUGINS="${DATA_ROOT}/serverplugins"
+P_PLUGINS="${DATA_ROOT}/plugins"
 
-mkdir -p "$P_WORLD" "$P_PLUGINS" "$P_LOGS"
+mkdir -p "$P_WORLD" "$P_LOGS" "$P_SERVERPLUGINS" "$P_PLUGINS"
 
-# Remplace un répertoire par un symlink (si nécessaire)
+# Remplace un chemin par un symlink vers le volume (répertoire)
 link_dir() {
   src="$1"
   dst="$2"
 
-  # si c'est déjà un symlink, on ne touche pas
   if [ -L "$src" ]; then
     return 0
   fi
 
-  # si le dossier existe (non vide), on le garde en sauvegarde (rare)
   if [ -d "$src" ] && [ "$(ls -A "$src" 2>/dev/null || true)" ]; then
     mv "$src" "${src}.bak.$(date +%s)" || true
   else
-    rm -rf "$src" || true
+    rm -rf "$src" 2>/dev/null || true
   fi
 
   mkdir -p "$(dirname "$src")"
   ln -s "$dst" "$src"
 }
 
-# Pointage vers le volume unique
 link_dir "$WORLD_DIR" "$P_WORLD"
-link_dir "$PLUGINS_DIR" "$P_PLUGINS"
 link_dir "$LOG_DIR" "$P_LOGS"
+link_dir "$SERVERPLUGINS_DIR" "$P_SERVERPLUGINS"
+link_dir "$EXTERNAL_PLUGINS_DIR" "$P_PLUGINS"
 
-# Variables usuelles (l'image utilise CONFIGPATH/LOGPATH/WORLD_FILENAME) :contentReference[oaicite:4]{index=4}
-: "${WORLD_FILENAME:=world.wld}"
-: "${WORLD_SIZE:=2}"     # 1 small / 2 medium / 3 large
+# Vars (avec défauts)
+: "${WORLD_FILENAME:=arto.wld}"
+: "${WORLD_SIZE:=2}"          # 1=Small 2=Medium 3=Large
 : "${MAXPLAYERS:=8}"
+: "${GAME_PORT:=7777}"
 : "${PASSWORD:=}"
 : "${MOTD:=}"
-: "${GAME_PORT:=7777}"
-
-export WORLD_FILENAME
-export CONFIGPATH="$WORLD_DIR"
-export LOGPATH="$LOG_DIR"
 
 WORLD_PATH="${WORLD_DIR}/${WORLD_FILENAME}"
 
-# Nettoyage des args pour éviter les doublons si quelqu’un a mis -world dans Railway
+# (Optionnel) éviter l'erreur jq en créant un config.json vide côté Worlds
+if [ ! -f "${WORLD_DIR}/config.json" ]; then
+  printf '%s\n' '{}' > "${WORLD_DIR}/config.json"
+fi
+
+# Import optionnel: si vous déposez des DLL dans /plugins (persistant),
+# on les copie vers ServerPlugins (persistant) au démarrage.
+# (TShock charge les plugins depuis ServerPlugins)
+if [ -d "$EXTERNAL_PLUGINS_DIR" ]; then
+  find "$EXTERNAL_PLUGINS_DIR" -maxdepth 1 -type f -name '*.dll' -exec cp -f {} "$SERVERPLUGINS_DIR"/ \; 2>/dev/null || true
+fi
+
+# Nettoyage des args utilisateur pour éviter doublons dangereux
 SANITIZED_ARGS=""
 skip_next=0
 for a in "$@"; do
@@ -75,19 +83,22 @@ for a in "$@"; do
   esac
 done
 
-SAFE_ARGS="-maxplayers ${MAXPLAYERS} -port ${GAME_PORT}"
+# Args serveur
+ARGS="-configpath ${WORLD_DIR} -logpath ${LOG_DIR} -port ${GAME_PORT} -maxplayers ${MAXPLAYERS} -world ${WORLD_PATH}"
 
-# Création auto si le monde n’existe pas
+# Création auto du monde si absent (README de l'image : usage -autocreate) :contentReference[oaicite:2]{index=2}
 if [ ! -f "$WORLD_PATH" ]; then
-  SAFE_ARGS="${SAFE_ARGS} -autocreate ${WORLD_SIZE}"
+  ARGS="${ARGS} -autocreate ${WORLD_SIZE}"
 fi
 
 if [ -n "$PASSWORD" ]; then
-  SAFE_ARGS="${SAFE_ARGS} -password ${PASSWORD}"
+  ARGS="${ARGS} -password ${PASSWORD}"
 fi
 
 if [ -n "$MOTD" ]; then
-  SAFE_ARGS="${SAFE_ARGS} -motd ${MOTD}"
+  ARGS="${ARGS} -motd ${MOTD}"
 fi
 
-exec /bin/sh /tshock/bootstrap.sh $SAFE_ARGS $SANITIZED_ARGS
+# Lancement direct du serveur (commande mono utilisée couramment pour TShock) :contentReference[oaicite:3]{index=3}
+cd /tshock
+exec mono --server --gc=sgen -O=all TerrariaServer.exe $ARGS $SANITIZED_ARGS
