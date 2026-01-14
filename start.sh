@@ -2,7 +2,6 @@
 set -eu
 
 WORLD_DIR="${CONFIGPATH:-/root/.local/share/Terraria/Worlds}"
-WORLD_FILE="${WORLD_FILENAME:-world.wld}"
 WORLD_PATH="${WORLD_DIR}/${WORLD_FILE}"
 
 PORT="${GAME_PORT:-7777}"
@@ -12,7 +11,7 @@ PASSWORD="${PASSWORD:-}"
 MOTD="${MOTD:-}"
 EXTRA_ARGS="${EXTRA_ARGS:-}"
 
-ARGS="-world ${WORLD_PATH} -port ${PORT} -maxplayers ${MAXPLAYERS}"
+ARGS="-port ${PORT} -maxplayers ${MAXPLAYERS}"
 
 # Mot de passe (optionnel)
 if [ -n "${PASSWORD}" ]; then
