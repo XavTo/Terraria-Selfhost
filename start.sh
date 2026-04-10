@@ -56,8 +56,21 @@ fi
 
 # Si le monde n'existe pas encore, on demande une autocreation
 : "${WORLD_SIZE:=2}"  # 1=Small, 2=Medium, 3=Large (convention de l'image / Terraria) :contentReference[oaicite:4]{index=4}
+# Optionnel: 0=Classic, 1=Expert, 2=Master, 3=Journey.
+: "${WORLD_DIFFICULTY:=}"
 if [ ! -f "${WORLD_DIR}/${WORLD_FILENAME}" ]; then
   set -- "$@" -autocreate "${WORLD_SIZE}"
+  case "${WORLD_DIFFICULTY}" in
+    "")
+      ;;
+    0|1|2|3)
+      set -- "$@" -difficulty "${WORLD_DIFFICULTY}"
+      ;;
+    *)
+      echo "Invalid WORLD_DIFFICULTY='${WORLD_DIFFICULTY}'. Use 0=classic, 1=expert, 2=master, 3=journey." >&2
+      exit 1
+      ;;
+  esac
 fi
 
 # Sécurité : si quelqu'un a mis -world/-configpath/-logpath dans Railway, on les supprime (doublons => crash)
